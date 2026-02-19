@@ -1,0 +1,8 @@
+deploy-output.json
+deploy-output.json.partial
+.env.*
+*.log
+node_modules/
+.DS_Store
+preflight-report.json
+smoke-test-report.json
