@@ -39,6 +39,7 @@ ZONE=""
 FROM_OUTPUT=""
 DRY_RUN=false
 YES=false
+NAME_MODE=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -58,6 +59,10 @@ if [[ -z "$NAME" && -z "$FROM_OUTPUT" ]]; then
   echo "ERROR: Provide --name or --from-output" >&2
   usage
   exit 2
+fi
+
+if [[ -n "$NAME" && -z "$FROM_OUTPUT" ]]; then
+  NAME_MODE=true
 fi
 
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
@@ -140,6 +145,98 @@ else
 
   FW_RULES=("${NAME}-deny-ingress" "${NAME}-allow-iap")
   SECRETS=("${NAME}-telegram-bot-token" "${NAME}-gateway-token" "${NAME}-gemini-api-key")
+fi
+
+###############################################################################
+# Ownership checks for --name mode
+###############################################################################
+EXPECTED_DEPLOY_ID=""
+
+check_labeled_ownership() {
+  local kind="$1"
+  local id="$2"
+  local metadata_json="$3"
+
+  local label_project label_deploy
+  label_project=$(echo "$metadata_json" | jq -r '.labels.project // empty' 2>/dev/null || true)
+  label_deploy=$(echo "$metadata_json" | jq -r '.labels["deploy-id"] // empty' 2>/dev/null || true)
+
+  if [[ -z "$label_project" || -z "$label_deploy" ]]; then
+    warn "Skipping $kind $id: missing required labels project/deploy-id"
+    return 1
+  fi
+
+  if [[ "$label_project" != "$NAME" || "$label_deploy" != "$EXPECTED_DEPLOY_ID" ]]; then
+    warn "Skipping $kind $id: label mismatch (project=$label_project, deploy-id=$label_deploy)"
+    return 1
+  fi
+
+  return 0
+}
+
+if [[ "$NAME_MODE" == "true" ]]; then
+  if [[ -n "$INSTANCE_NAME" ]]; then
+    INSTANCE_JSON=$(gcloud compute instances describe "$INSTANCE_NAME" \
+      --project "$PROJECT" --zone "$ZONE" --format=json 2>/dev/null || true)
+    EXPECTED_DEPLOY_ID=$(echo "$INSTANCE_JSON" | jq -r '.labels["deploy-id"] // empty' 2>/dev/null || true)
+  fi
+
+  if [[ -z "$EXPECTED_DEPLOY_ID" ]]; then
+    for secret in "${SECRETS[@]}"; do
+      SECRET_JSON=$(gcloud secrets describe "$secret" --project "$PROJECT" --format=json 2>/dev/null || true)
+      EXPECTED_DEPLOY_ID=$(echo "$SECRET_JSON" | jq -r '.labels["deploy-id"] // empty' 2>/dev/null || true)
+      [[ -n "$EXPECTED_DEPLOY_ID" ]] && break
+    done
+  fi
+
+  if [[ -z "$EXPECTED_DEPLOY_ID" ]]; then
+    echo "ERROR: Could not determine deploy-id label for --name teardown. Refusing destructive delete." >&2
+    echo "Use --from-output for explicit resource deletion if needed." >&2
+    exit 1
+  fi
+
+  log "Ownership guard: project=$NAME deploy-id=$EXPECTED_DEPLOY_ID"
+
+  if [[ -n "$INSTANCE_NAME" ]]; then
+    INSTANCE_JSON=$(gcloud compute instances describe "$INSTANCE_NAME" \
+      --project "$PROJECT" --zone "$ZONE" --format=json 2>/dev/null || true)
+    check_labeled_ownership "instance" "$INSTANCE_NAME" "$INSTANCE_JSON" || INSTANCE_NAME=""
+  fi
+
+  FILTERED_FW_RULES=()
+  for rule in "${FW_RULES[@]}"; do
+    RULE_JSON=$(gcloud compute firewall-rules describe "$rule" --project "$PROJECT" --format=json 2>/dev/null || true)
+    if check_labeled_ownership "firewall rule" "$rule" "$RULE_JSON"; then
+      FILTERED_FW_RULES+=("$rule")
+    fi
+  done
+  FW_RULES=("${FILTERED_FW_RULES[@]}")
+
+  if [[ -n "$SUBNET_NAME" ]]; then
+    SUBNET_JSON=$(gcloud compute networks subnets describe "$SUBNET_NAME" \
+      --project "$PROJECT" --region "$REGION" --format=json 2>/dev/null || true)
+    check_labeled_ownership "subnet" "$SUBNET_NAME" "$SUBNET_JSON" || SUBNET_NAME=""
+  fi
+
+  if [[ -n "$NETWORK_NAME" ]]; then
+    NETWORK_JSON=$(gcloud compute networks describe "$NETWORK_NAME" \
+      --project "$PROJECT" --format=json 2>/dev/null || true)
+    check_labeled_ownership "network" "$NETWORK_NAME" "$NETWORK_JSON" || NETWORK_NAME=""
+  fi
+
+  FILTERED_SECRETS=()
+  for secret in "${SECRETS[@]}"; do
+    SECRET_JSON=$(gcloud secrets describe "$secret" --project "$PROJECT" --format=json 2>/dev/null || true)
+    if check_labeled_ownership "secret" "$secret" "$SECRET_JSON"; then
+      FILTERED_SECRETS+=("$secret")
+    fi
+  done
+  SECRETS=("${FILTERED_SECRETS[@]}")
+
+  if [[ -n "$SA_EMAIL" ]]; then
+    SA_JSON=$(gcloud iam service-accounts describe "$SA_EMAIL" --project "$PROJECT" --format=json 2>/dev/null || true)
+    check_labeled_ownership "service account" "$SA_EMAIL" "$SA_JSON" || SA_EMAIL=""
+  fi
 fi
 
 ###############################################################################

@@ -106,6 +106,12 @@ if ! [[ "$DISK_SIZE" =~ ^[0-9]+$ ]] || [[ "$DISK_SIZE" -lt 10 ]]; then
   exit 1
 fi
 
+# MODEL is injected into startup script + JSON; reject anything outside strict allowlist.
+if ! [[ "$MODEL" =~ ^[A-Za-z0-9./-]+$ ]]; then
+  echo "ERROR: --model contains invalid characters. Allowed: letters, numbers, '/', '.', '-'" >&2
+  exit 1
+fi
+
 # Resolve paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -559,7 +565,7 @@ log "--- Step 8: Getting OS image ---"
 
 # Detect if ARM machine type
 IS_ARM=false
-if [[ "$MACHINE_TYPE" == t2a-* || "$MACHINE_TYPE" == t2d-* ]]; then
+if [[ "$MACHINE_TYPE" == t2a-* ]]; then
   IS_ARM=true
 fi
 
@@ -584,8 +590,10 @@ NODE_VERSION="22.14.0"
 # Determine Node.js architecture
 if [[ "$IS_ARM" == "true" ]]; then
   NODE_ARCH="arm64"
+  GCLOUD_ARCH="arm"
 else
   NODE_ARCH="x64"
+  GCLOUD_ARCH="x86_64"
 fi
 
 # Build models config block
@@ -618,6 +626,7 @@ PROJECT_ID="__PROJECT__"
 REGION="__REGION__"
 NODE_VERSION="__NODE_VERSION__"
 NODE_ARCH="__NODE_ARCH__"
+GCLOUD_ARCH="__GCLOUD_ARCH__"
 MODEL="__MODEL__"
 HAS_GEMINI_KEY="__HAS_GEMINI_KEY__"
 IS_VERTEX="__IS_VERTEX__"
@@ -689,7 +698,7 @@ echo "[$(date)] OpenClaw: $(which openclaw)"
 # Install gcloud CLI if not present (needed for Secret Manager)
 if ! command -v gcloud &>/dev/null; then
   echo "[$(date)] Installing gcloud CLI..."
-  curl -fsSL https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-linux-${NODE_ARCH}.tar.gz -o /tmp/gcloud.tar.gz
+  curl -fsSL https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-linux-${GCLOUD_ARCH}.tar.gz -o /tmp/gcloud.tar.gz
   tar -xf /tmp/gcloud.tar.gz -C /opt
   /opt/google-cloud-sdk/install.sh --quiet --path-update=true
   ln -sf /opt/google-cloud-sdk/bin/gcloud /usr/local/bin/gcloud
@@ -896,6 +905,7 @@ STARTUP_SCRIPT="${STARTUP_SCRIPT//__PROJECT__/$PROJECT}"
 STARTUP_SCRIPT="${STARTUP_SCRIPT//__REGION__/$REGION}"
 STARTUP_SCRIPT="${STARTUP_SCRIPT//__NODE_VERSION__/$NODE_VERSION}"
 STARTUP_SCRIPT="${STARTUP_SCRIPT//__NODE_ARCH__/$NODE_ARCH}"
+STARTUP_SCRIPT="${STARTUP_SCRIPT//__GCLOUD_ARCH__/$GCLOUD_ARCH}"
 STARTUP_SCRIPT="${STARTUP_SCRIPT//__MODEL__/$MODEL}"
 STARTUP_SCRIPT="${STARTUP_SCRIPT//__HAS_GEMINI_KEY__/$HAS_GEMINI_KEY}"
 STARTUP_SCRIPT="${STARTUP_SCRIPT//__IS_VERTEX__/$IS_VERTEX}"

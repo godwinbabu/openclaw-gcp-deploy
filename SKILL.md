@@ -43,7 +43,7 @@ This single command:
 1. Enables required GCP APIs (Compute, Secret Manager, IAP, Vertex AI)
 2. Creates VPC network + subnet (custom mode)
 3. Creates firewall rules (deny-all ingress, allow IAP tunnel only)
-4. Creates service account with minimal permissions
+4. Creates service account with scoped deploy permissions (project-level admin roles where required by GCP APIs)
 5. Stores secrets in Secret Manager
 6. Launches e2-medium instance with startup script
 7. Installs Node.js 22 + OpenClaw + configures everything
@@ -69,6 +69,20 @@ This single command:
 # Or by name:
 ./scripts/teardown.sh --name starfish --project my-gcp-project --yes
 ```
+
+## Deployer IAM Roles
+
+`scripts/setup_deployer.sh` grants this deployer role set:
+- `roles/compute.admin`
+- `roles/iam.serviceAccountAdmin`
+- `roles/iam.serviceAccountKeyAdmin`
+- `roles/iam.serviceAccountUser`
+- `roles/iam.roleViewer`
+- `roles/secretmanager.admin`
+- `roles/iap.tunnelResourceAccessor`
+- `roles/serviceusage.serviceUsageAdmin`
+
+Rationale: avoids broad `roles/resourcemanager.projectIamAdmin`, but still requires project-level admin roles to create/delete infrastructure, manage service accounts, and manage secrets during deploy/teardown.
 
 ## Model Support
 
