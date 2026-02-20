@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ###############################################################################
-# setup_deployer.sh — Create a GCP service account with minimum permissions
+# setup_deployer.sh — Create a GCP service account with scoped permissions
 #                     to run the OpenClaw deploy + teardown scripts.
 #
 # Usage:
@@ -53,11 +53,14 @@ SA_EMAIL="${SA_NAME}@${PROJECT}.iam.gserviceaccount.com"
 DEPLOYER_ROLES=(
   "roles/compute.admin"                   # Create/delete VPC, subnets, firewall, instances
   "roles/iam.serviceAccountAdmin"         # Create/delete service accounts
+  "roles/iam.serviceAccountKeyAdmin"      # Create/revoke deployer key material
   "roles/iam.serviceAccountUser"          # Attach SA to instances
+  "roles/iam.roleViewer"                  # Read role definitions during IAM policy updates
   "roles/secretmanager.admin"             # Create/delete secrets
   "roles/iap.tunnelResourceAccessor"      # IAP tunnel for SSH
   "roles/serviceusage.serviceUsageAdmin"  # Enable APIs
-  "roles/resourcemanager.projectIamAdmin" # Grant roles to instance SA
+  # Security tradeoff: avoid broad projectIamAdmin and grant only IAM capabilities
+  # needed by this workflow to manage service accounts and policy bindings.
 )
 
 if [[ "$DRY_RUN" == "true" ]]; then
@@ -84,7 +87,7 @@ else
   gcloud iam service-accounts create "$SA_NAME" \
     --project "$PROJECT" \
     --display-name "OpenClaw Deployer" \
-    --description "Minimum-privilege deployer for OpenClaw GCP deployments" \
+    --description "Scoped-role deployer for OpenClaw GCP deployments" \
     --quiet
   log "✅ Service account created: $SA_EMAIL"
 fi

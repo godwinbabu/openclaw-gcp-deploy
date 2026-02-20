@@ -141,7 +141,7 @@ Pass any model string via `--model`:
 ## GCP Deployer Permissions
 
 ```bash
-# Create a deployer service account with minimum permissions
+# Create a deployer service account with the documented role set
 ./scripts/setup_deployer.sh --project my-gcp-project
 
 # Or just list the required roles
@@ -151,11 +151,14 @@ Pass any model string via `--model`:
 Required roles for the deployer:
 - `roles/compute.admin`
 - `roles/iam.serviceAccountAdmin`
+- `roles/iam.serviceAccountKeyAdmin`
 - `roles/iam.serviceAccountUser`
+- `roles/iam.roleViewer`
 - `roles/secretmanager.admin`
 - `roles/iap.tunnelResourceAccessor`
 - `roles/serviceusage.serviceUsageAdmin`
-- `roles/resourcemanager.projectIamAdmin`
+
+Rationale: this avoids the broader `roles/resourcemanager.projectIamAdmin` grant, but still uses project-level admin roles for compute, secret management, and service account lifecycle.
 
 ## Files
 
@@ -163,7 +166,7 @@ Required roles for the deployer:
 scripts/
   deploy.sh              ← One-shot deploy (start here)
   teardown.sh            ← Clean removal of all resources
-  setup_deployer.sh      ← Create deployer SA with minimum permissions
+  setup_deployer.sh      ← Create deployer SA with scoped IAM roles
   smoke_test.sh          ← Post-deploy health verification
 
 assets/personalities/    ← Agent personality presets (SOUL.md files)
